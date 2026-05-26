@@ -1,6 +1,6 @@
 # 🎙️ Claude Code Companion
 
-A cloned voice that talks to you while you code with Claude.
+An voice agent that talks to you while you code with Claude.
 
 Open a session and you are greeted out loud. Send a message and a warm, in character line reacts to it while Claude writes its reply. The voice is one you pick and clone yourself, and it runs entirely on your Mac. Think Samantha from *Her*, sitting beside you while you work.
 
@@ -16,10 +16,9 @@ Under the hood it is [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fi
 ## Get started
 
 ```bash
-./setup.sh
+git clone https://github.com/Genesis1231/claude-code-companion.git
+cd claude-code-companion && ./setup.sh
 ```
-
-This sets up a Python environment, installs everything, and connects the companion to Claude Code. It is safe to run again and never overwrites your settings.
 
 Next add a voice (none ship with the repo, since voices are personal), then open a Claude Code session in this folder. The companion starts, greets you, and speaks on every message from then on.
 
@@ -29,16 +28,6 @@ A voice is two files in `voices/`:
 
 * `voices/<name>.wav`: a clean 20 to 45 second mono clip at 44.1kHz.
 * `voices/<name>.txt`: its exact transcript.
-
-```bash
-# 1. cut a clip from a recording
-ffmpeg -y -i source.m4a -t 45 -ac 1 -ar 44100 -sample_fmt s16 voices/NAME.wav
-
-# 2. write its transcript with whisper
-.venv/bin/python -c "import mlx_whisper; open('voices/NAME.txt','w').write(mlx_whisper.transcribe('voices/NAME.wav', path_or_hf_repo='mlx-community/whisper-large-v3-turbo')['text'].strip())"
-```
-
-A clean, quiet recording with varied intonation clones best. Set the default voice with the `voice` key in `config.json`.
 
 
 ## How it works
