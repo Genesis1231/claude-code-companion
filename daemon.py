@@ -11,6 +11,7 @@ Health: curl -s 127.0.0.1:8765/health
 import argparse
 import json
 import os
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,11 @@ from engine import engine
 
 _cfg = json.loads((Path(__file__).parent / "config.json").read_text())
 DEFAULT_PORT = _cfg["port"]
+
+# Session-refcount dir maintained by voiced.sh (one token file per live Claude
+# session). The reaper frees the model once it goes empty — see _reap_when_idle.
+SESSIONS_DIR = Path(tempfile.gettempdir()) / "claude-code-companion" / "sessions"
+IDLE_EXIT_GRACE_S = 60   # > worst-case goodbye latency, so a send-off is never cut off
 
 
 class Speaker:
@@ -34,8 +40,10 @@ class Speaker:
         self._warm_voice = warm_voice
         self.ready = False
         self.error = None                         # set if the worker dies during load
+        self._shutting_down = False               # a /shutdown is speaking + exiting
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._worker.start()
+        threading.Thread(target=self._reap_when_idle, daemon=True).start()
 
     def submit(self, text: str, voice: str, speed=None) -> bool:
         """Queue a line. Returns False if the worker is dead (won't be spoken)."""
@@ -53,6 +61,7 @@ class Speaker:
     def submit_final(self, text: str, voice: str, speed=None) -> None:
         """Speak one last line (the goodbye), then exit the process to free the
         model's RAM. Used by the /shutdown teardown path."""
+        self._shutting_down = True
         with self._cv:
             self._pending = (text, voice, speed)
             self._final = True
@@ -92,6 +101,32 @@ class Speaker:
                 # goodbye spoken (playback is synchronous) — free the model's RAM.
                 print("[daemon] farewell spoken, exiting", flush=True)
                 os._exit(0)
+
+    def _reap_when_idle(self):
+        """Safety net that GUARANTEES the model is offloaded. Once sessions have
+        existed and then all ended (voiced.sh keeps one token file per session),
+        free the RAM — even if the whole goodbye/teardown chain failed. The grace
+        window exceeds a normal goodbye, and a /shutdown in progress
+        (self._shutting_down) defers to that path so a spoken send-off is never
+        cut off. Never fires if no session ever registered (e.g. a hand-run
+        daemon), so manual use isn't reaped out from under you."""
+        seen = False
+        empty_since = None
+        while True:
+            time.sleep(10)
+            if self._shutting_down:
+                continue                          # /shutdown owns the (spoken) exit
+            try:
+                active = SESSIONS_DIR.is_dir() and any(SESSIONS_DIR.iterdir())
+            except OSError:
+                active = False
+            if active:
+                seen, empty_since = True, None
+            elif seen:                            # had sessions, now none
+                empty_since = empty_since or time.monotonic()
+                if time.monotonic() - empty_since >= IDLE_EXIT_GRACE_S:
+                    print("[daemon] no active sessions — offloading model", flush=True)
+                    os._exit(0)
 
 
 speaker = None  # created in main() so the worker thread owns the model
@@ -153,6 +188,13 @@ class Handler(BaseHTTPRequestHandler):
             data = {}
         text = (data.get("text") or "").strip()
         voice = data.get("voice", _cfg["voice"])
+        # Ignore a stale goodbye meant for a previous daemon instance: an old
+        # session's detached goodbye.py can land here after a NEW daemon has taken
+        # the port. When a pid is given, only honor it if it's ours.
+        target = data.get("pid")
+        if isinstance(target, int) and target != os.getpid():
+            return self._json(409, {"error": "shutdown for another daemon instance"})
+        speaker._shutting_down = True
         self._json(202, {"bye": True})
         if speaker.ready and text:
             speaker.submit_final(text, voice)

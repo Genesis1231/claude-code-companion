@@ -116,31 +116,18 @@ case "${1:-status}" in
     fi
     pid="$(daemon_pid)"
     if [ -n "$pid" ]; then
-      # Say goodbye before freeing the model: generate a fond line (same flow as
-      # the greeting in `start`) and POST it to /shutdown, so the daemon speaks it
-      # then exits itself. Any failure falls back to a direct kill. The
-      # COMPANION_NO_HOOK bail at the top keeps the nested `claude -p` from
-      # re-entering this teardown.
-      BYE=""
       if is_ready; then
-        CLAUDE="$(find_claude || true)"
-        if [ -n "$CLAUDE" ]; then
-          PERSONA="$(cfg persona)"
-          FAREWELL_PROMPT="$(cfg farewell_prompt)"
-          BYE="$(COMPANION_NO_HOOK=1 "$CLAUDE" -p "$PERSONA"$'\n\n'"$FAREWELL_PROMPT" 2>/dev/null)" || BYE=""
-        fi
-      fi
-      if is_ready && [ -n "$BYE" ]; then
-        # -f so an HTTP error (e.g. an old daemon with no /shutdown route) is a
-        # curl failure, not a false success — then we fall back to killing the pid
-        # so the model's RAM is always freed.
-        curl -fsS -m 5 -XPOST "127.0.0.1:$PORT/shutdown" \
-          -H 'Content-Type: application/json' \
-          -d "{\"text\": $("$PY" -c 'import json,sys;print(json.dumps(sys.stdin.read().strip()))' <<< "$BYE"), \"voice\": \"$VOICE\"}" \
-          >/dev/null 2>&1 \
-          && echo "goodbye sent; daemon shutting down (pid $pid)" \
-          || { kill "$pid" 2>/dev/null; echo "stopped (pid $pid, goodbye unavailable)"; }
+        # Say goodbye, then free the model. SessionEnd hooks are killed when the
+        # CLI exits, so the slow part (generate the line + speak it) runs in a
+        # DETACHED process that outlives this session — like the daemon itself.
+        # goodbye.py POSTs /shutdown (daemon speaks, then exits); if that fails it
+        # kills $pid so the RAM is freed regardless. The COMPANION_NO_HOOK bail at
+        # the top keeps goodbye.py's nested `claude -p` from re-entering teardown.
+        nohup "$PY" "$DIR/goodbye.py" "$pid" >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+        echo "goodbye dispatched; daemon shutting down (pid $pid)"
       else
+        # model not ready (still loading) — nothing to speak; just free the RAM.
         kill "$pid" 2>/dev/null && echo "stopped (pid $pid)" || echo "not running"
       fi
       rm -f "$PIDFILE"

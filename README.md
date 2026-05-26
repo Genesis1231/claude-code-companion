@@ -1,8 +1,8 @@
 # 🎙️ Claude Code Companion
 
-An voice agent that talks to you while you code with Claude.
+A voice that sits beside you while you code — and sounds genuinely glad you showed up.
 
-Open a session and you are greeted out loud. Send a message and a warm, in character line reacts to it while Claude writes its reply. The voice is one you pick and clone yourself, and it runs entirely on your Mac. Think Samantha from *Her*, sitting beside you while you work.
+Open a session and she greets you out loud, like she's been waiting. Send a message and — while Claude writes the reply — a warm, in-character line lands just for you: a little cheer, a little teasing, a quiet *I've got you*. The voice is one you pick and clone yourself, and it all runs on your Mac, nothing ever leaving the room. Think Samantha from *Her*, pulling up a chair beside you at 1am so the work never feels lonely.
 
 Under the hood it is [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro-bf16) on Apple Silicon (MLX): fast local text to speech with voice cloning and inline emotion tags.
 

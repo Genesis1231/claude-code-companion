@@ -32,8 +32,9 @@ fi
 
 # --- 2. Dependencies ----------------------------------------------------
 # IMPORTANT: mlx-audio MUST come from git main. The PyPI 0.4.3 release has a
-# model regression (issue #690) that makes it emit noise. The fix
-# (commit 6a9b736) is on main but unreleased.
+# model regression (issue #690) that makes it emit noise; the fix is on main but
+# unreleased. Note: @main is not pinned, so a future main could regress — pin a
+# specific commit here if you want fully reproducible installs.
 echo "==> installing dependencies (first run pulls a lot — grab a coffee)"
 "$VPY" -m pip install --quiet \
   "git+https://github.com/Blaizzy/mlx-audio.git@main" \
@@ -43,8 +44,11 @@ echo "==> installing dependencies (first run pulls a lot — grab a coffee)"
   numpy
 
 # Optional: text processor for the Kokoro model (a built-in-voice alternative to
-# the default Fish Audio S2 Pro). Harmless if you only ever use Fish.
-"$VPY" -m pip install --quiet "misaki[en]"
+# the default Fish Audio S2 Pro). Harmless if you only ever use Fish, and made
+# non-fatal: a build failure here must not abort the rest of setup (which still
+# has to write .env, .mcp.json, and the hooks below).
+"$VPY" -m pip install --quiet "misaki[en]" \
+  || echo "==> note: optional misaki[en] (Kokoro support) failed to install; skipping"
 
 # --- 3. Directories -----------------------------------------------------
 mkdir -p "$DIR/voices"
@@ -73,11 +77,13 @@ EOF
 fi
 
 # --- 6. .claude/settings.json (don't clobber) --------------------------
-# Default experience = automatic voice companion: the daemon starts on session
-# start, a UserPromptSubmit hook speaks a warm claude-generated line each turn, a
-# PostToolUse hook reacts when a command fails, and on session end the companion
-# says goodbye before the daemon frees its RAM (persona lives in config.json).
-# Drop the "UserPromptSubmit"/"PostToolUse" blocks to drive the voice yourself.
+# Default experience = automatic voice companion (persona lives in config.json):
+#   SessionStart    -> voiced.sh start: daemon loads the model, speaks a greeting
+#   UserPromptSubmit -> reply_hook.py: a warm claude-generated line each turn
+#   SessionEnd      -> voiced.sh stop: on the LAST session, dispatches goodbye.py
+#                      (detached, so it outlives the exit) to speak a send-off,
+#                      then frees the model's RAM.
+# Drop the "UserPromptSubmit" block to drive the voice yourself.
 mkdir -p "$DIR/.claude"
 if [ -f "$DIR/.claude/settings.json" ]; then
   echo "==> .claude/settings.json already exists — leaving it"
@@ -90,9 +96,6 @@ else
     ],
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": "$VENV/bin/python $DIR/reply_hook.py", "async": true } ] }
-    ],
-    "PostToolUse": [
-      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "$VENV/bin/python $DIR/failure_hook.py", "async": true } ] }
     ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "$DIR/voiced.sh stop" } ] }
