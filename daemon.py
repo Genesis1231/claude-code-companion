@@ -1,0 +1,184 @@
+"""Background TTS daemon: keeps the model resident and speaks lines
+sent over a tiny local HTTP endpoint. Non-blocking — POST returns immediately
+and audio is generated + played in a worker thread. Newer requests supersede
+queued-but-unstarted ones so the spoken voice always matches the latest reply.
+
+Run:   python daemon.py [--port 8765]
+Speak: curl -s -XPOST 127.0.0.1:8765/speak -d '{"text":"hi","voice":"her1_clean"}'
+Health: curl -s 127.0.0.1:8765/health
+"""
+
+import argparse
+import json
+import os
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from engine import engine
+
+_cfg = json.loads((Path(__file__).parent / "config.json").read_text())
+DEFAULT_PORT = _cfg["port"]
+
+
+class Speaker:
+    """Single worker that OWNS the model. MLX GPU streams are thread-affine, so
+    the model must be loaded and used on this same thread — never the main one.
+    Only the most recent pending line is spoken (stay current)."""
+
+    def __init__(self, warm_voice: "str | None" = None):
+        self._pending = None                     # (text, voice, speed) or None
+        self._final = False                      # speak _pending, then exit the process
+        self._cv = threading.Condition()
+        self._warm_voice = warm_voice
+        self.ready = False
+        self.error = None                         # set if the worker dies during load
+        self._worker = threading.Thread(target=self._run, daemon=True)
+        self._worker.start()
+
+    def submit(self, text: str, voice: str, speed=None) -> bool:
+        """Queue a line. Returns False if the worker is dead (won't be spoken)."""
+        if self.error is not None:
+            return False
+        with self._cv:
+            if self._pending is not None:
+                # latest-wins: we're dropping an unspoken line — make it visible
+                print(f"[daemon] dropping unspoken line (superseded): {self._pending[0][:60]!r}",
+                      flush=True)
+            self._pending = (text, voice, speed)
+            self._cv.notify()
+        return True
+
+    def submit_final(self, text: str, voice: str, speed=None) -> None:
+        """Speak one last line (the goodbye), then exit the process to free the
+        model's RAM. Used by the /shutdown teardown path."""
+        with self._cv:
+            self._pending = (text, voice, speed)
+            self._final = True
+            self._cv.notify()
+
+    def _run(self):
+        # load on THIS thread so the GPU stream belongs to it
+        print("[daemon] loading model...", flush=True)
+        try:
+            engine.load()
+            if self._warm_voice:
+                try:
+                    engine.warm_voice(self._warm_voice)
+                    print(f"[daemon] voice '{self._warm_voice}' warmed", flush=True)
+                except Exception as e:
+                    print(f"[daemon] warm voice '{self._warm_voice}' failed: {e}", flush=True)
+        except Exception as e:
+            # fatal: model never loaded. Record it so /health and /speak surface it.
+            self.error = f"model load failed: {e}"
+            print(f"[daemon] {self.error}", flush=True)
+            return
+        self.ready = True
+        print("[daemon] model ready", flush=True)
+        while True:
+            with self._cv:
+                while self._pending is None:
+                    self._cv.wait()
+                text, voice, speed = self._pending
+                self._pending = None
+                final = self._final
+                self._final = False
+            try:
+                engine.speak(text=text, voice=voice or None, play=True, speed=speed)
+            except Exception as e:
+                print(f"[daemon] speak failed: {e}", flush=True)
+            if final:
+                # goodbye spoken (playback is synchronous) — free the model's RAM.
+                print("[daemon] farewell spoken, exiting", flush=True)
+                os._exit(0)
+
+
+speaker = None  # created in main() so the worker thread owns the model
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # so Python http.client doesn't RemoteDisconnect
+
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._json(200, {
+                "ok": speaker.error is None,
+                "ready": speaker.ready,
+                "error": speaker.error,
+                "voices": engine.list_voices(),
+            })
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path == "/shutdown":
+            return self._shutdown()
+        if self.path != "/speak":
+            return self._json(404, {"error": "not found"})
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            return self._json(400, {"error": "bad json"})
+        text = (data.get("text") or "").strip()
+        if not text:
+            return self._json(400, {"error": "empty text"})
+        voice = data.get("voice", _cfg["voice"])
+        speed = data.get("speed")  # None -> engine uses the per-voice default
+        if speed is not None:
+            try:
+                speed = float(speed)
+            except (TypeError, ValueError):
+                speed = None
+        if not speaker.submit(text, voice, speed):   # fire-and-forget
+            return self._json(503, {"error": f"voice daemon not ready: {speaker.error}"})
+        self._json(202, {"queued": True})
+
+    def _shutdown(self):
+        """Speak an optional final line, then exit the process (frees the model).
+        Returns immediately; the worker speaks the goodbye and exits on its own."""
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            data = {}
+        text = (data.get("text") or "").strip()
+        voice = data.get("voice", _cfg["voice"])
+        self._json(202, {"bye": True})
+        if speaker.ready and text:
+            speaker.submit_final(text, voice)
+        else:
+            # nothing to say (or model never loaded) — free the RAM anyway, but
+            # let the 202 flush first.
+            threading.Thread(target=lambda: (time.sleep(0.2), os._exit(0)),
+                             daemon=True).start()
+
+    def log_message(self, *a):
+        pass                                      # quiet
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--no-warm", action="store_true", help="don't preload a default voice")
+    args = p.parse_args()
+
+    global speaker
+    speaker = Speaker(warm_voice=None if args.no_warm else _cfg["voice"])
+
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    print(f"[daemon] listening on 127.0.0.1:{args.port}", flush=True)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
