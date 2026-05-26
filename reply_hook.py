@@ -70,7 +70,10 @@ def main():
     prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser's message:\n{user_msg[:500]}"
     try:
         line = subprocess.run(
-            [claude, "-p", prompt],
+            # --strict-mcp-config: load no MCP servers, so this text-only call
+            # can't reach the project's `speak` tool and narrate a permission
+            # denial into the spoken line.
+            [claude, "-p", "--strict-mcp-config", prompt],
             capture_output=True, text=True, timeout=30,
             env={**os.environ, "COMPANION_NO_HOOK": "1"},
         ).stdout.strip()

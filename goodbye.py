@@ -81,7 +81,9 @@ def main():
     if claude:
         try:
             line = subprocess.run(
-                [claude, "-p", f"{PERSONA}\n\n{FAREWELL_PROMPT}"],
+                # --strict-mcp-config: no MCP servers, so this text-only call
+                # can't reach the `speak` tool and narrate a permission denial.
+                [claude, "-p", "--strict-mcp-config", f"{PERSONA}\n\n{FAREWELL_PROMPT}"],
                 capture_output=True, text=True, timeout=30,
                 env={**os.environ, "COMPANION_NO_HOOK": "1"},
             ).stdout.strip()

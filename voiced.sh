@@ -88,7 +88,10 @@ case "${1:-status}" in
           sleep 2
           if is_ready; then
             if [ -n "$CLAUDE" ]; then
-              GREETING="$(COMPANION_NO_HOOK=1 "$CLAUDE" -p "$PERSONA"$'\n\n'"$GREETING_PROMPT" 2>/dev/null)" || GREETING="Ready when you are."
+              # --strict-mcp-config: load NO MCP servers, so this text-only
+              # generator can't see (and try to call) the project's `speak` tool
+              # and narrate a permission denial into the spoken greeting.
+              GREETING="$(COMPANION_NO_HOOK=1 "$CLAUDE" -p --strict-mcp-config "$PERSONA"$'\n\n'"$GREETING_PROMPT" 2>/dev/null)" || GREETING="Ready when you are."
             else
               GREETING="Ready when you are."
             fi

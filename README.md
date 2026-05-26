@@ -1,10 +1,19 @@
 # 🎙️ Claude Code Companion
 
-A voice that sits beside you while you code — and sounds genuinely glad you showed up.
+A voice that sits beside you while you code and sounds genuinely glad you showed up.
 
-Open a session and she greets you out loud, like she's been waiting. Send a message and — while Claude writes the reply — a warm, in-character line lands just for you: a little cheer, a little teasing, a quiet *I've got you*. The voice is one you pick and clone yourself, and it all runs on your Mac, nothing ever leaving the room. Think Samantha from *Her*, pulling up a chair beside you at 1am so the work never feels lonely.
+Open a session and she greets you out loud, like she's been waiting. While Claude writes the reply, a warm line lands just for you: a little cheer, a little teasing, a quiet *I've got you*. The voice is one you pick or clone yourself, and it all runs on your local Mac, nothing ever leaving the room. Think Samantha from *Her*, pulling up a chair beside you at 1am so the work never feels lonely.
 
-Under the hood it is [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro-bf16) on Apple Silicon (MLX): fast local text to speech with voice cloning and inline emotion tags.
+Under the hood it is Kokoro or [Fish Audio S2](https://huggingface.co/mlx-community/fish-audio-s2-pro) on Apple Silicon (MLX): fast local text to speech with voice cloning and inline emotion tags.
+
+## Features
+
+* **Runs entirely on your home computer for FREE** Local text-to-speech on Apple Silicon (MLX): no cloud, no API keys, no per-word cost, and nothing you say or code ever leaves the machine.
+* **Your own cloned voice.** Clone any voice from a short clip with [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro), or pick one of Kokoro's fast built-in voices. configurable in `config.json`.
+* **A persona you write.** Her tone and what she says on greeting, on each reply, and on goodbye all live in `config.json` — make her warm, deadpan, flirty, a hype-beast, whatever fits you.
+* **She speaks with you, in the moment.** Greets you when a session opens, reacts in character to each message *while Claude writes the reply*, and gives a fond send-off when you're done.
+* **Real emotion, not flat narration.** Inline tags like `[laughing]`, `[whisper]`, `[sigh]`, and `[gasp]` let her actually laugh, soften, or sigh.
+
 
 ## What you need
 
@@ -20,7 +29,7 @@ git clone https://github.com/Genesis1231/claude-code-companion.git
 cd claude-code-companion && ./setup.sh
 ```
 
-Next add a voice (none ship with the repo, since voices are personal), then open a Claude Code session in this folder. The companion starts, greets you, and speaks on every message from then on.
+Next configure `config.json`, then open a Claude Code session in this folder. The companion starts, greets you, and speaks on every message from then on.
 
 ## Add a voice
 
