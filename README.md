@@ -4,12 +4,12 @@ A voice that sits beside you while you code and sounds genuinely glad you showed
 
 Open a session and she greets you out loud, like she's been waiting. While Claude writes the reply, a warm line lands just for you: a little cheer, a little teasing, a quiet *I've got you*. The voice is one you pick or clone yourself, and it all runs on your local Mac, nothing ever leaving the room. Think Samantha from *Her*, pulling up a chair beside you at 1am so the work never feels lonely.
 
-Under the hood it is Kokoro or [Fish Audio S2](https://huggingface.co/mlx-community/fish-audio-s2-pro) on Apple Silicon (MLX): fast local text to speech with voice cloning and inline emotion tags.
+Under the hood it is [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16) or [Fish Audio S2](https://huggingface.co/mlx-community/fish-audio-s2-pro) on Apple Silicon (MLX): fast local text to speech with voice cloning and inline emotion tags.
 
 ## Features
 
 * **Runs entirely on your home computer for FREE** Local text-to-speech on Apple Silicon (MLX): no cloud, no API keys, no per-word cost, and nothing you say or code ever leaves the machine.
-* **Your own cloned voice.** Clone any voice from a short clip with [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro), or pick one of Kokoro's fast built-in voices. configurable in `config.json`.
+* **Your own cloned voice.** Clone any voice from a short clip with [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro), or pick one of [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16)'s fast built-in voices. configurable in `config.json`.
 * **A persona you write.** Her tone and what she says on greeting, on each reply, and on goodbye all live in `config.json` — make her warm, deadpan, flirty, a hype-beast, whatever fits you.
 * **She speaks with you, in the moment.** Greets you when a session opens, reacts in character to each message *while Claude writes the reply*, and gives a fond send-off when you're done.
 * **Real emotion, not flat narration.** Inline tags like `[laughing]`, `[whisper]`, `[sigh]`, and `[gasp]` let her actually laugh, soften, or sigh.
@@ -60,8 +60,4 @@ Edit `config.json`:
 
 The companion writes each spoken reaction with a quick background `claude` call, which adds a small cost per message. To turn it off, remove the `UserPromptSubmit` hook from `.claude/settings.json` and drive the voice yourself.
 
-## Notes
 
-* Voice clips, generated audio, and your machine specific settings stay out of git.
-* The voice service listens only on `127.0.0.1`.
-* Dependencies install `mlx-audio` from git `main`, since the latest PyPI release has a Fish S2 Pro bug that produces noise ([PR #693](https://github.com/Blaizzy/mlx-audio/pull/693)).
