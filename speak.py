@@ -4,7 +4,6 @@ Usage:
     python speak.py "Hello [excited] this is a test [laughing]"
     python speak.py --voice her1_clean "say this in that voice"
     python speak.py --ref-audio voice.wav --ref-text "transcript" "ad-hoc clone"
-    python speak.py --no-play "generate only"
     echo "piped text" | python speak.py -
 
 Exits 0 on success, prints the wav path on the last line of stdout.
@@ -15,7 +14,7 @@ This loads its OWN model copy (no daemon). For repeated use, prefer the daemon
 import argparse
 import sys
 
-from config import VOICES_DIR
+from config import VOICES_DIR, logger
 from engine import engine
 
 
@@ -26,15 +25,10 @@ def log(msg: str) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="Generate + play speech via the configured TTS model (MLX).")
     p.add_argument("text", help="text to speak, or '-' to read from stdin")
-    p.add_argument("--no-play", action="store_true", help="generate only, don't play")
-    p.add_argument("--prefix", default=None, help="output filename prefix (default: timestamp)")
     p.add_argument("--voice", default=None, help=f"named profile in {VOICES_DIR}/ (<name>.wav + <name>.txt)")
     p.add_argument("--ref-audio", default=None, help="ad-hoc reference audio file for cloning")
     p.add_argument("--ref-text", default=None, help="transcript of --ref-audio (required with it)")
-    p.add_argument("--temperature", type=float, default=0.7)
-    p.add_argument("--top-p", type=float, default=0.7)
-    p.add_argument("--top-k", type=int, default=30)
-    p.add_argument("--max-tokens", type=int, default=2048)
+    p.add_argument("--no-play", action="store_true", help="generate only, don't play")
     args = p.parse_args()
 
     text = sys.stdin.read().strip() if args.text == "-" else args.text
@@ -54,27 +48,22 @@ def main() -> int:
 
     log("loading model (use the daemon for repeated calls)...")
     try:
-        result = engine.speak(
-            text=text,
-            voice=args.voice,
-            ref_audio_path=args.ref_audio,
-            ref_text=args.ref_text,
-            prefix=args.prefix,
-            play=not args.no_play,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            top_k=args.top_k,
-            max_tokens=args.max_tokens,
-        )
+        result = engine.speak(text=text, voice=args.voice, ref_audio_path=args.ref_audio,
+                              ref_text=args.ref_text, play=not args.no_play)
     except Exception as e:
         log(f"error: {e}")
+        logger.exception("engine.speak failed for text: %r", text[:80])
         return 1
 
     log(f"generated {result['audio_seconds']}s in {result['generation_seconds']}s "
         f"(RTF {result['realtime_factor']}), model load {result['model_load_seconds']}s")
-    print(result["path"])
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        rc = main()
+    except Exception:
+        logger.exception("speak crashed")
+        rc = 1
+    sys.exit(rc)

@@ -1,22 +1,31 @@
-"""Resident TTS engine with per-voice reference caching.
+"""Resident TTS engine with per-voice reference caching and streaming playback.
 
 Loads the 5B model once and keeps it in memory. The expensive part of each
 generation — encoding the multi-second reference clip into VQ tokens via the
 audio codec — is cached per voice, so repeat calls with the same voice skip it.
+
+Playback streams chunks to the audio device as they arrive (via a worker thread
++ OutputStream), so Time-To-First-Audio ≈ Time-To-First-Chunk rather than the
+full generation time.
 """
 
+import queue
 import threading
 import time
-import wave
-from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
 
 import numpy as np
+import sounddevice as sd
+import soundfile as sf
+from dotenv import load_dotenv
 
-from config import MODEL as MODEL_ID, VOICES_DIR, OUT_DIR
+from config import MODEL, VOICES_DIR, logger
 
 load_dotenv()
+
+# Applied to every chunk before playback. tanh() provides soft-clip limiting,
+# replacing the global peak-normalize that required all audio up front.
+_GAIN = 2.0
 
 
 class Engine:
@@ -37,9 +46,7 @@ class Engine:
                 return 0.0
             t0 = time.time()
             from mlx_audio.tts.utils import load_model
-            self._model = load_model(MODEL_ID)
-            # Fish-style models clone from a reference clip via this method;
-            # built-in-voice models (e.g. Kokoro) lack it and pick a named preset.
+            self._model = load_model(MODEL)
             self._cloning = hasattr(self._model, "_prepare_reference_prompt")
             self._load_time = time.time() - t0
             return self._load_time
@@ -55,25 +62,33 @@ class Engine:
             if (VOICES_DIR / f"{p.stem}.txt").exists()
         )
 
-    def voice_speed(self, voice: Optional[str]) -> float:
-        """Per-voice default speed from optional voices/<name>.speed (else 1.0)."""
-        if not voice:
-            return 1.0
-        f = VOICES_DIR / f"{voice}.speed"
-        try:
-            return float(f.read_text().strip())
-        except (OSError, ValueError):
-            return 1.0
-
     def _decode_audio(self, path: str, target_sr: int = 44100):
-        import miniaudio
-        import mlx.core as mx
-        decoded = miniaudio.decode_file(
-            path, output_format=miniaudio.SampleFormat.SIGNED16,
-            nchannels=1, sample_rate=target_sr,
-        )
-        floats = np.frombuffer(decoded.samples, dtype=np.int16).astype(np.float32) / 32768.0
-        return mx.array(floats)
+        """Read an audio file into a float32 mono array at `target_sr`.
+
+        Uses `soundfile` to read and falls back to a NumPy linear interpolation
+        resampler (no scipy). Returns an `mlx.core` array when available.
+        """
+        try:
+            import mlx.core as mx
+        except ImportError:
+            mx = None
+
+        data, sr = sf.read(path, dtype="float32")
+        if data.ndim > 1:
+            data = np.mean(data, axis=1)
+
+        if sr != target_sr:
+            old_len = len(data)
+            new_len = int(round(old_len * target_sr / sr))
+            if new_len <= 0:
+                data = np.zeros(0, dtype=np.float32)
+            else:
+                old_idx = np.arange(old_len)
+                new_idx = np.linspace(0, old_len - 1, new_len)
+                data = np.interp(new_idx, old_idx, data).astype(np.float32)
+
+        data = data.astype(np.float32)
+        return mx.array(data) if mx is not None else data
 
     def _reference_prompt(self, voice: str):
         """Return cached (prompt_texts, prompt_tokens) for a voice, computing once."""
@@ -103,13 +118,12 @@ class Engine:
         voice: Optional[str] = None,
         ref_audio_path: Optional[str] = None,
         ref_text: Optional[str] = None,
-        prefix: Optional[str] = None,
         play: bool = True,
+        speed: float = 1.0,
         temperature: float = 0.7,
         top_p: float = 0.7,
         top_k: int = 30,
         max_tokens: int = 2048,
-        speed: Optional[float] = None,
     ) -> dict:
         """Generate speech. For reference-cloning models (Fish S2 Pro), voice
         source priority is: named `voice` profile (cached reference) >
@@ -118,56 +132,55 @@ class Engine:
         self.load()
         import mlx.core as mx
 
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        prefix = prefix or f"clip_{int(time.time())}"
-        out_path = OUT_DIR / f"{prefix}.wav"
+        q: Optional[queue.Queue] = queue.Queue() if play else None
+        player = threading.Thread(target=_stream_player, args=(q,), daemon=True) if play else None
+        if player:
+            player.start()
 
-        if speed is None or speed <= 0:
-            speed = self.voice_speed(voice)
+        total_samples = 0
+        sr = None
+        gen_time = 0.0
 
-        with self._lock:
-            t0 = time.time()
-            if self._cloning:
-                gen_kwargs = dict(text=text, temperature=temperature, top_p=top_p,
-                                  top_k=top_k, max_tokens=max_tokens, speed=speed)
-                if voice:
-                    # Inject the cached reference prompt, bypassing codec.encode.
-                    cached = self._reference_prompt(voice)
-                    orig = self._model._prepare_reference_prompt
-                    self._model._prepare_reference_prompt = lambda *a, **k: cached
-                    # generate() needs ref_audio truthy to take the reference path
-                    gen_kwargs["ref_audio"] = mx.zeros((1,), dtype=mx.float32)
-                    gen_kwargs["ref_text"] = cached[0][0] if cached[0] else ""
-                    try:
-                        chunks, sr = self._run(gen_kwargs)
-                    finally:
-                        self._model._prepare_reference_prompt = orig
+        try:
+            with self._lock:
+                t0 = time.time()
+                if self._cloning:
+                    gen_kwargs = dict(text=text, temperature=temperature, top_p=top_p,
+                                      top_k=top_k, max_tokens=max_tokens, speed=speed)
+                    if voice:
+                        # Inject cached reference prompt, bypassing codec.encode.
+                        cached = self._reference_prompt(voice)
+                        orig = self._model._prepare_reference_prompt
+                        self._model._prepare_reference_prompt = lambda *a, **k: cached
+                        # generate() needs ref_audio truthy to take the reference path
+                        gen_kwargs["ref_audio"] = mx.zeros((1,), dtype=mx.float32)
+                        gen_kwargs["ref_text"] = cached[0][0] if cached[0] else ""
+                        try:
+                            total_samples, sr = self._generate(gen_kwargs, q)
+                        finally:
+                            self._model._prepare_reference_prompt = orig
+                    else:
+                        if ref_audio_path:
+                            gen_kwargs["ref_audio"] = self._decode_audio(ref_audio_path)
+                            gen_kwargs["ref_text"] = ref_text or ""
+                        total_samples, sr = self._generate(gen_kwargs, q)
                 else:
-                    if ref_audio_path:
-                        gen_kwargs["ref_audio"] = self._decode_audio(ref_audio_path)
-                        gen_kwargs["ref_text"] = ref_text or ""
-                    chunks, sr = self._run(gen_kwargs)
-            else:
-                # Built-in-voice model (e.g. Kokoro): no cloning; `voice` is a
-                # preset name. Fish-only sampling params don't apply.
-                gen_kwargs = dict(text=text, speed=speed)
-                if voice:
-                    gen_kwargs["voice"] = voice
-                chunks, sr = self._run(gen_kwargs)
-            gen_time = time.time() - t0
+                    # Built-in-voice model (e.g. Kokoro): no cloning; `voice` is a
+                    # preset name. Fish-only sampling params don't apply.
+                    gen_kwargs = dict(text=text, speed=speed)
+                    if voice:
+                        gen_kwargs["voice"] = voice
+                    total_samples, sr = self._generate(gen_kwargs, q)
+                gen_time = time.time() - t0
+        finally:
+            # Always send sentinel so player thread can exit cleanly, even on error.
+            if q is not None:
+                q.put(None)
+            if player is not None:
+                player.join()
 
-        audio = mx.concatenate(chunks) if len(chunks) > 1 else chunks[0]
-        samples = _normalize(np.asarray(audio, dtype=np.float32), target_peak=0.95)
-        _write_wav(out_path, samples, sr)
-        audio_dur = len(samples) / sr
-
-        if play:
-            _play(out_path)
-
-        _prune_outputs(keep=8)
-
+        audio_dur = total_samples / sr if sr else 0.0
         return {
-            "path": str(out_path),
             "audio_seconds": round(audio_dur, 2),
             "generation_seconds": round(gen_time, 2),
             "realtime_factor": round(gen_time / audio_dur, 2) if audio_dur else None,
@@ -175,62 +188,44 @@ class Engine:
             "model_load_seconds": round(self._load_time, 2) if self._load_time else 0.0,
         }
 
-    def _run(self, gen_kwargs):
-        chunks, sr = [], None
+    def _generate(self, gen_kwargs: dict, q: Optional[queue.Queue]) -> tuple[int, int]:
+        """Iterate model.generate(), push chunks to q, return (total_samples, sr)."""
+        total_samples, sr = 0, None
         for result in self._model.generate(**gen_kwargs):
-            chunks.append(result.audio)
+            arr = np.asarray(result.audio, dtype=np.float32).ravel()
             sr = sr or result.sample_rate
-        if not chunks:
+            total_samples += len(arr)
+            if q is not None:
+                q.put((arr, sr))
+        if not total_samples:
             raise RuntimeError("no audio produced")
-        return chunks, sr
+        return total_samples, sr
 
 
-def _prune_outputs(keep: int = 8) -> None:
-    """Keep only the most recent `keep` generated wavs in OUT_DIR; they're
-    throwaway one-shot clips."""
-    outputs = sorted(OUT_DIR.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in outputs[keep:]:
-        try:
-            old.unlink()
-        except OSError:
-            pass
-
-
-def _normalize(samples: "np.ndarray", target_peak: float = 0.95) -> "np.ndarray":
-    """Peak-normalize so quiet reference voices come out at consistent loudness."""
-    samples = np.asarray(samples, dtype=np.float32)
-    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
-    if peak < 1e-4:
-        return samples
-    return samples * (target_peak / peak)
-
-
-def _write_wav(path: Path, samples: "np.ndarray", sample_rate: int) -> None:
-    # vectorized: clip → int16 little-endian → bytes, in one pass (no per-sample loop)
-    clipped = np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0)
-    pcm = (clipped * 32767.0).astype("<i2").tobytes()
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        w.writeframes(pcm)
-
-
-def _play(path: Path) -> None:
-    import shutil
-    import subprocess
-    import sys
+def _stream_player(q: queue.Queue) -> None:
+    """Pull (arr, sr) chunks from queue and write to OutputStream as they arrive.
+    Runs in a daemon thread so the generator and playback overlap."""
+    stream: Optional[sd.OutputStream] = None
     try:
-        if sys.platform == "darwin" and shutil.which("afplay"):
-            subprocess.run(["afplay", str(path)], check=False, timeout=300)
-        elif shutil.which("ffplay"):
-            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)],
-                           check=False, timeout=300)
-        else:
-            print(f"[engine] no audio player (afplay/ffplay) found — wav at {path}",
-                  file=sys.stderr, flush=True)
-    except subprocess.TimeoutExpired:
-        print(f"[engine] playback timed out for {path}", file=sys.stderr, flush=True)
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            arr, sr = item
+            if stream is None:
+                stream = sd.OutputStream(samplerate=sr, channels=1, dtype="float32")
+                stream.start()
+            stream.write(np.tanh(arr * _GAIN))
+    except Exception:
+        # This runs in a daemon thread; an unlogged exception here would just
+        # vanish (silent no-audio). Record it. The producer's queue is unbounded,
+        # so its q.put() won't block even though this consumer is gone, and
+        # speak()'s player.join() returns once this thread exits.
+        logger.exception("audio playback failed in stream player")
+    finally:
+        if stream is not None:
+            stream.stop()
+            stream.close()
 
 
 # Module-level singleton for reuse across server / scripts.

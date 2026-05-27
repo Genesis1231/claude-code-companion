@@ -21,9 +21,6 @@ if [ -n "${COMPANION_NO_HOOK:-}" ]; then
 fi
 
 PY="$DIR/.venv/bin/python"
-
-# Read config via config.py. Safe fallbacks so a missing/malformed config.json
-# (or absent .venv) can never block teardown or status — only degrade the greeting.
 cfg() { PYTHONPATH="$DIR" "$PY" -c "import config; print(getattr(config,'$1',''))" 2>/dev/null || true; }
 PORT="$(cfg PORT)";   PORT="${PORT:-8765}"
 VOICE="$(cfg VOICE)"; VOICE="${VOICE:-her1_clean}"
@@ -35,10 +32,7 @@ PIDFILE="$RUNTIME/daemon.pid"     # PID of the daemon we launched (verified befo
 SESS_DIR="$RUNTIME/sessions"      # one token file per live Claude session (refcount)
 
 is_up()    { curl -s -m 1 "127.0.0.1:$PORT/health" >/dev/null 2>&1; }
-# tolerate json.dumps spacing: "ready": true  (space after the colon)
 is_ready() { curl -s -m 1 "127.0.0.1:$PORT/health" 2>/dev/null | grep -q '"ready": *true'; }
-
-# True if $1 is a live process whose command is our daemon.py.
 is_our_daemon() { ps -p "$1" -o command= 2>/dev/null | grep -q "daemon.py"; }
 
 # Echo the PID of OUR daemon (never an unrelated process on the port): prefer the
