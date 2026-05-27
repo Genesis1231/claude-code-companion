@@ -97,6 +97,9 @@ else
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": "$VENV/bin/python $DIR/reply_hook.py", "async": true } ] }
     ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "$VENV/bin/python $DIR/stop_hook.py", "async": true } ] }
+    ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "$DIR/voiced.sh stop" } ] }
     ]
