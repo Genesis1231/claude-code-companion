@@ -107,10 +107,10 @@ def main():
 
     if context:
         prompt = (f"{PERSONA}\n\n{REPLY_PROMPT}\n\n"
-                  f"Recent conversation between user and AI Coder(not you):\n{context}\n\n"
-                  f"User asks the AI Coder:\n{user_msg}")
+                  f"Recent conversation:\n{context}\n\n"
+                  f"User: {user_msg}")
     else:
-        prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser asks the AI Coder:\n{user_msg}"
+        prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser: {user_msg}"
     try:
         line = subprocess.run(
             # --strict-mcp-config: load no MCP servers, so this text-only call
