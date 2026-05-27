@@ -10,12 +10,13 @@ Register via .mcp.json. Tools:
   voice_status()      - is the daemon up / model ready
 """
 
+import functools
 import json
 import urllib.request
 
 from mcp.server.fastmcp import FastMCP
 
-from config import PORT, VOICE
+from config import PORT, VOICE, logger
 BASE = f"http://127.0.0.1:{PORT}"
 
 # Bypass any system/env proxy — the daemon is on localhost. Without this, a
@@ -23,6 +24,20 @@ BASE = f"http://127.0.0.1:{PORT}"
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 mcp = FastMCP("claude-code-companion")
+
+
+def _logged(fn):
+    """Record any unexpected crash in a tool body (a daemon-down case is already
+    handled gracefully by _get/_post; this catches real bugs like a dropped
+    import) instead of letting MCP swallow it silently."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            logger.exception("MCP tool %s crashed", fn.__name__)
+            return {"error": f"{fn.__name__} failed; see logs/companion.log"}
+    return wrapper
 
 
 def _get(path: str, timeout: float = 2.0) -> dict:
@@ -48,12 +63,14 @@ def _post(path: str, payload: dict, timeout: float = 3.0) -> dict:
 
 
 @mcp.tool()
+@_logged
 def voice_status() -> dict:
     """Check whether the voice daemon is running and the model is loaded."""
     return _get("/health")
 
 
 @mcp.tool()
+@_logged
 def list_voices() -> dict:
     """List available voice profiles (voices/<name>.wav + <name>.txt pairs)."""
     health = _get("/health")
@@ -63,7 +80,8 @@ def list_voices() -> dict:
 
 
 @mcp.tool()
-def speak(text: str, voice: str = VOICE, speed: float | None = None) -> dict:
+@_logged
+def speak(text: str, voice: str = VOICE) -> dict:
     """Speak text aloud in a cloned voice (fire-and-forget).
 
     Supports inline prosody tags: [excited] [whisper] [laughing] [sad] [angry]
@@ -75,10 +93,12 @@ def speak(text: str, voice: str = VOICE, speed: float | None = None) -> dict:
     daemon uses the voice's configured default (voices/<name>.speed, else 1.0).
     """
     payload = {"text": text, "voice": voice}
-    if speed is not None:
-        payload["speed"] = speed
     return _post("/speak", payload)
 
 
 if __name__ == "__main__":
-    mcp.run()
+    try:
+        mcp.run()
+    except Exception:
+        logger.exception("mcp_server crashed")
+        raise

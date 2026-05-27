@@ -22,7 +22,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from config import PORT, VOICE, PERSONA, FAREWELL_PROMPT
+from config import PORT, VOICE, PERSONA, FAREWELL_PROMPT, logger
 
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -83,6 +83,7 @@ def main():
                 env={**os.environ, "COMPANION_NO_HOOK": "1"},
             ).stdout.strip()
         except (subprocess.SubprocessError, OSError):
+            logger.exception("claude -p failed to generate a farewell line")
             line = ""
 
     # POST even an empty line: the daemon's /shutdown frees RAM either way (it
@@ -96,4 +97,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Catch-all so a crash (e.g. a dropped import) is recorded, not silent.
+        logger.exception("goodbye crashed")

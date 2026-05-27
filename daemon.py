@@ -15,7 +15,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from config import PORT as DEFAULT_PORT, SESSIONS_DIR, VOICE
+from config import PORT as DEFAULT_PORT, SESSIONS_DIR, VOICE, logger
 from engine import engine
 
 # Session-refcount dir maintained by voiced.sh (one token file per live Claude
@@ -73,10 +73,12 @@ class Speaker:
                     print(f"[daemon] voice '{self._warm_voice}' warmed", flush=True)
                 except Exception as e:
                     print(f"[daemon] warm voice '{self._warm_voice}' failed: {e}", flush=True)
+                    logger.warning("warm voice %r failed", self._warm_voice, exc_info=True)
         except Exception as e:
             # fatal: model never loaded. Record it so /health and /speak surface it.
             self.error = f"model load failed: {e}"
             print(f"[daemon] {self.error}", flush=True)
+            logger.exception("model load failed")
             return
         self.ready = True
         print("[daemon] model ready", flush=True)
@@ -92,6 +94,7 @@ class Speaker:
                 engine.speak(text=text, voice=voice or None, play=True, speed=speed)
             except Exception as e:
                 print(f"[daemon] speak failed: {e}", flush=True)
+                logger.exception("speak failed for text: %r", text[:80])
             if final:
                 # goodbye spoken (playback is synchronous) — free the model's RAM.
                 print("[daemon] farewell spoken, exiting", flush=True)

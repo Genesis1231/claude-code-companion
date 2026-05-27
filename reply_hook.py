@@ -23,7 +23,7 @@ from pathlib import Path
 if os.environ.get("COMPANION_NO_HOOK"):
     sys.exit(0)  # nested claude -p invocation — do nothing
 
-from config import PORT, VOICE, PERSONA, REPLY_PROMPT
+from config import PORT, VOICE, PERSONA, REPLY_PROMPT, logger
 
 # Bypass any system proxy — the daemon is on localhost.
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -73,6 +73,7 @@ def main():
             env={**os.environ, "COMPANION_NO_HOOK": "1"},
         ).stdout.strip()
     except (subprocess.SubprocessError, OSError):
+        logger.exception("claude -p failed to generate a reply line")
         return
     if not line:
         return
@@ -86,8 +87,12 @@ def main():
         )
         _opener.open(req, timeout=2)  # fire-and-forget
     except Exception:
-        pass
+        logger.warning("failed to POST the reply line to the daemon", exc_info=True)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Catch-all so a crash (e.g. a dropped import) is recorded, not silent.
+        logger.exception("reply_hook crashed")
