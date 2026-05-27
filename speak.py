@@ -15,7 +15,8 @@ This loads its OWN model copy (no daemon). For repeated use, prefer the daemon
 import argparse
 import sys
 
-from engine import VOICES_DIR, engine
+from config import VOICES_DIR
+from engine import engine
 
 
 def log(msg: str) -> None:

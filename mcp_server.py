@@ -10,14 +10,11 @@ Register via .mcp.json. Tools:
   voice_status()      - is the daemon up / model ready
 """
 
-import json
 import urllib.request
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-_cfg = json.loads((Path(__file__).parent / "config.json").read_text())
-PORT = _cfg["port"]
+from config import PORT, VOICE
 BASE = f"http://127.0.0.1:{PORT}"
 
 # Bypass any system/env proxy — the daemon is on localhost. Without this, a
@@ -65,7 +62,7 @@ def list_voices() -> dict:
 
 
 @mcp.tool()
-def speak(text: str, voice: str = _cfg["voice"], speed: float | None = None) -> dict:
+def speak(text: str, voice: str = VOICE, speed: float | None = None) -> dict:
     """Speak text aloud in a cloned voice (fire-and-forget).
 
     Supports inline prosody tags: [excited] [whisper] [laughing] [sad] [angry]

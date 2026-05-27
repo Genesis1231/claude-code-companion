@@ -12,23 +12,16 @@ COMPANION_NO_HOOK=1 and bail immediately when we see that — so the inner Claud
 never spawns more Claudes or tears the daemon down.
 """
 
-import json
 import os
 import shutil
 import subprocess
 import sys
 import urllib.request
-from pathlib import Path
 
 if os.environ.get("COMPANION_NO_HOOK"):
     sys.exit(0)  # nested claude -p invocation — do nothing
 
-HERE = Path(__file__).parent
-_cfg = json.loads((HERE / "config.json").read_text())
-PORT = _cfg["port"]
-VOICE = _cfg["voice"]
-PERSONA = _cfg["persona"]
-REPLY_PROMPT = _cfg["reply_prompt"]
+from config import PORT, VOICE, PERSONA, REPLY_PROMPT
 
 # Bypass any system proxy — the daemon is on localhost.
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

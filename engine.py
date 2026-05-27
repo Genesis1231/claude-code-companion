@@ -5,37 +5,18 @@ generation — encoding the multi-second reference clip into VQ tokens via the
 audio codec — is cached per voice, so repeat calls with the same voice skip it.
 """
 
-import json
-import tempfile
 import threading
 import time
 import wave
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 
 import numpy as np
 
-HERE = Path(__file__).parent
-VOICES_DIR = HERE / "voices"
-# Generated wavs are throwaway — each is played once. Keep them in the system
-# temp dir ($TMPDIR) so the OS reaps them; never write them into the project.
-OUT_DIR = Path(tempfile.gettempdir()) / "claude-code-companion"
+from config import MODEL as MODEL_ID, VOICES_DIR, OUT_DIR
 
-_cfg = json.loads((HERE / "config.json").read_text())
-MODEL_ID = _cfg["model"]
-
-
-def _load_env(path: Path = HERE / ".env") -> None:
-    import os
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-    if os.environ.get("HF_TOKEN") and not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
+load_dotenv()
 
 
 class Engine:
@@ -54,7 +35,6 @@ class Engine:
         with self._lock:
             if self._model is not None:
                 return 0.0
-            _load_env()
             t0 = time.time()
             from mlx_audio.tts.utils import load_model
             self._model = load_model(MODEL_ID)

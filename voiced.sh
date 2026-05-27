@@ -22,14 +22,14 @@ fi
 
 PY="$DIR/.venv/bin/python"
 
-# Read config with safe fallbacks (.get + ||true) so a missing/malformed
-# config.json can never block teardown or status — only degrade the greeting.
-cfg() { python3 -c "import json;print(json.load(open('$DIR/config.json')).get('$1',''))" 2>/dev/null || true; }
-PORT="$(cfg port)";   PORT="${PORT:-8765}"
-VOICE="$(cfg voice)"; VOICE="${VOICE:-her1_clean}"
+# Read config via config.py. Safe fallbacks so a missing/malformed config.json
+# (or absent .venv) can never block teardown or status — only degrade the greeting.
+cfg() { PYTHONPATH="$DIR" "$PY" -c "import config; print(getattr(config,'$1',''))" 2>/dev/null || true; }
+PORT="$(cfg PORT)";   PORT="${PORT:-8765}"
+VOICE="$(cfg VOICE)"; VOICE="${VOICE:-her1_clean}"
 # GREETING_PROMPT / PERSONA are read inside `start` only (the sole place they're used).
 
-RUNTIME="${TMPDIR:-/tmp}/claude-code-companion"
+RUNTIME="$(cfg RUNTIME_DIR)"; RUNTIME="${RUNTIME:-${TMPDIR:-/tmp}/claude-code-companion}"
 LOG="$RUNTIME/daemon.log"
 PIDFILE="$RUNTIME/daemon.pid"     # PID of the daemon we launched (verified before kill)
 SESS_DIR="$RUNTIME/sessions"      # one token file per live Claude session (refcount)
@@ -73,8 +73,8 @@ case "${1:-status}" in
     if is_up; then
       echo "already running"
     else
-      GREETING_PROMPT="$(cfg greeting_prompt)"
-      PERSONA="$(cfg persona)"
+      GREETING_PROMPT="$(cfg GREETING_PROMPT)"
+      PERSONA="$(cfg PERSONA)"
       rm -rf "$SESS_DIR"          # fresh daemon: any leftover tokens are from dead sessions
       mkdir -p "$RUNTIME"
       nohup "$PY" "$DIR/daemon.py" --port "$PORT" >"$LOG" 2>&1 &
@@ -107,15 +107,22 @@ case "${1:-status}" in
     [ -n "$SID" ] && { mkdir -p "$SESS_DIR"; : > "$SESS_DIR/$SID"; }
     ;;
   stop)
+    # Is this a genuine manual run (interactive terminal)? Capture BEFORE reading
+    # stdin. ONLY a manual run force-tears-down; a hook run must never kill a
+    # daemon another window is still using.
+    if [ -t 0 ]; then MANUAL=1; else MANUAL=0; fi
     SID="$(session_id)"
-    if [ -n "$SID" ]; then
-      rm -f "$SESS_DIR/$SID"
-      # Shared daemon: only really stop when no other session still holds a token.
+    if [ "$MANUAL" = 1 ]; then
+      rm -rf "$SESS_DIR"          # manual stop: force teardown regardless of refcount
+    else
+      # Hook run: release just this session's token (if we could identify it).
+      [ -n "$SID" ] && rm -f "$SESS_DIR/$SID"
+      # If any other session still holds a token, leave the daemon for them. An
+      # empty/unknown SID in a hook NEVER force-kills — that was the bug that tore
+      # the shared daemon down when a second window closed.
       if [ -n "$(ls -A "$SESS_DIR" 2>/dev/null)" ]; then
         echo "daemon still in use by another session; leaving it"; exit 0
       fi
-    else
-      rm -rf "$SESS_DIR"          # manual stop: force teardown regardless of refcount
     fi
     pid="$(daemon_pid)"
     if [ -n "$pid" ]; then

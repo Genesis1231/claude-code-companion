@@ -11,20 +11,15 @@ Health: curl -s 127.0.0.1:8765/health
 import argparse
 import json
 import os
-import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
+from config import PORT as DEFAULT_PORT, SESSIONS_DIR, VOICE
 from engine import engine
-
-_cfg = json.loads((Path(__file__).parent / "config.json").read_text())
-DEFAULT_PORT = _cfg["port"]
 
 # Session-refcount dir maintained by voiced.sh (one token file per live Claude
 # session). The reaper frees the model once it goes empty — see _reap_when_idle.
-SESSIONS_DIR = Path(tempfile.gettempdir()) / "claude-code-companion" / "sessions"
 IDLE_EXIT_GRACE_S = 60   # > worst-case goodbye latency, so a send-off is never cut off
 
 
@@ -167,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
         text = (data.get("text") or "").strip()
         if not text:
             return self._json(400, {"error": "empty text"})
-        voice = data.get("voice", _cfg["voice"])
+        voice = data.get("voice", VOICE)
         speed = data.get("speed")  # None -> engine uses the per-voice default
         if speed is not None:
             try:
@@ -187,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             data = {}
         text = (data.get("text") or "").strip()
-        voice = data.get("voice", _cfg["voice"])
+        voice = data.get("voice", VOICE)
         # Ignore a stale goodbye meant for a previous daemon instance: an old
         # session's detached goodbye.py can land here after a NEW daemon has taken
         # the port. When a pid is given, only honor it if it's ours.
@@ -215,7 +210,7 @@ def main():
     args = p.parse_args()
 
     global speaker
-    speaker = Speaker(warm_voice=None if args.no_warm else _cfg["voice"])
+    speaker = Speaker(warm_voice=None if args.no_warm else VOICE)
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"[daemon] listening on 127.0.0.1:{args.port}", flush=True)

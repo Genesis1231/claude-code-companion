@@ -8,7 +8,7 @@ Under the hood it is [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf
 
 ## Features
 
-* **Runs entirely on your home computer for FREE** Local text-to-speech on Apple Silicon (MLX): no cloud, no API keys, no per-word cost, and nothing you say or code ever leaves the machine.
+* **Runs entirely on your home computer for FREE.** Local text-to-speech on Apple Silicon (MLX): no cloud, no API keys, no per-word cost, and nothing you say or code ever leaves the machine.
 * **Your own cloned voice.** Clone any voice from a short clip with [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro), or pick one of [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16)'s fast built-in voices. configurable in `config.json`.
 * **A persona you write.** Her tone and what she says on greeting, on each reply, and on goodbye all live in `config.json` — make her warm, deadpan, flirty, a hype-beast, whatever fits you.
 * **She speaks with you, in the moment.** Greets you when a session opens, reacts in character to each message *while Claude writes the reply*, and gives a fond send-off when you're done.
