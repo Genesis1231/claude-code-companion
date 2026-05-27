@@ -12,6 +12,7 @@ COMPANION_NO_HOOK=1 and bail immediately when we see that — so the inner Claud
 never spawns more Claudes or tears the daemon down.
 """
 
+import datetime
 import json
 import os
 import shutil
@@ -23,7 +24,39 @@ from pathlib import Path
 if os.environ.get("COMPANION_NO_HOOK"):
     sys.exit(0)  # nested claude -p invocation — do nothing
 
-from config import PORT, VOICE, PERSONA, REPLY_PROMPT, logger
+from config import PORT, VOICE, PERSONA, REPLY_PROMPT, LOGS_DIR, logger
+
+_CONTEXT_LINES = 4  # how many prior messages to inject as session context
+
+
+def _session_file(session_id: str) -> Path:
+    return LOGS_DIR / f"{session_id}.md"
+
+
+def _read_context(session_id: str) -> str:
+    """Return the last few logged messages as a context snippet, or empty string."""
+    if not session_id:
+        return ""
+    try:
+        lines = [l for l in _session_file(session_id).read_text().splitlines()
+                 if l.startswith("- ")]
+        return "\n".join(lines[-_CONTEXT_LINES:])
+    except OSError:
+        return ""
+
+
+def _append_message(session_id: str, msg: str) -> None:
+    """Append the user message to the session log (fail-silent)."""
+    if not session_id:
+        return
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%H:%M")
+        with _session_file(session_id).open("a") as fp:
+            fp.write(f"- [{ts}] {msg[:120]}\n")
+    except OSError:
+        pass
+
 
 # Bypass any system proxy — the daemon is on localhost.
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -56,13 +89,20 @@ def main():
     except (json.JSONDecodeError, ValueError):
         return
     user_msg = (payload.get("prompt") or "").strip()
+    session_id = (payload.get("session_id") or "").strip()
     # No point spending a claude call if there's nothing to react to or the
     # daemon can't speak it yet.
     claude = _claude_bin()
     if not user_msg or not claude or not _daemon_ready():
         return
 
-    prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser's message:\n{user_msg[:500]}"
+    context = _read_context(session_id)
+    if context:
+        prompt = (f"{PERSONA}\n\n{REPLY_PROMPT}\n\n"
+                  f"Earlier in this session:\n{context}\n\n"
+                  f"User's message:\n{user_msg[:500]}")
+    else:
+        prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser's message:\n{user_msg[:500]}"
     try:
         line = subprocess.run(
             # --strict-mcp-config: load no MCP servers, so this text-only call
@@ -88,6 +128,8 @@ def main():
         _opener.open(req, timeout=2)  # fire-and-forget
     except Exception:
         logger.warning("failed to POST the reply line to the daemon", exc_info=True)
+
+    _append_message(session_id, user_msg)
 
 
 if __name__ == "__main__":
