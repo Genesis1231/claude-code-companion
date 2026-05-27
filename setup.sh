@@ -10,7 +10,7 @@
 #   ./setup.sh
 #
 # Requirements: Apple Silicon (MLX), Python 3.10+, ~10GB disk for the model,
-# ~18GB RAM to run it (bf16). afplay (built into macOS) plays the audio.
+# ~18GB RAM to run it (bf16). Audio streams out via sounddevice (PortAudio).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,11 +36,16 @@ fi
 # unreleased. Note: @main is not pinned, so a future main could regress — pin a
 # specific commit here if you want fully reproducible installs.
 echo "==> installing dependencies (first run pulls a lot — grab a coffee)"
+# soundfile + sounddevice: engine.py decodes reference clips and streams playback
+# through them. python-dotenv: loads .env (HF_TOKEN). These are declared explicitly
+# rather than leaned on as transitive deps of mlx-audio.
 "$VPY" -m pip install --quiet \
   "git+https://github.com/Blaizzy/mlx-audio.git@main" \
   "mcp[cli]" \
   mlx-whisper \
-  miniaudio \
+  soundfile \
+  sounddevice \
+  python-dotenv \
   numpy
 
 # Optional: text processor for the Kokoro model (a built-in-voice alternative to
@@ -80,6 +85,8 @@ fi
 # Default experience = automatic voice companion (persona lives in config.json):
 #   SessionStart    -> voiced.sh start: daemon loads the model, speaks a greeting
 #   UserPromptSubmit -> reply_hook.py: a warm claude-generated line each turn
+#   Stop            -> stop_hook.py: logs Claude's reply so reactions have both
+#                      sides of the recent conversation as context (no voice)
 #   SessionEnd      -> voiced.sh stop: on the LAST session, dispatches goodbye.py
 #                      (detached, so it outlives the exit) to speak a send-off,
 #                      then frees the model's RAM.
