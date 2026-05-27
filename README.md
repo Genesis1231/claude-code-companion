@@ -10,17 +10,15 @@ Under the hood it is [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf
 
 * **Runs entirely on your home computer for FREE.** Local text-to-speech on Apple Silicon (MLX): no cloud, no API keys, no per-word cost, and nothing you say or code ever leaves the machine.
 * **Your own cloned voice.** Clone any voice from a short clip with [Fish Audio S2 Pro](https://huggingface.co/mlx-community/fish-audio-s2-pro), or pick one of [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16)'s fast built-in voices. configurable in `config.json`.
-* **A persona you write.** Her tone and what she says on greeting, on each reply, and on goodbye all live in `config.json` — make her warm, deadpan, flirty, a hype-beast, whatever fits you.
-* **She speaks with you, in the moment.** Greets you when a session opens, reacts in character to each message *while Claude writes the reply*, and gives a fond send-off when you're done.
-* **She follows the thread.** Each reaction is shaped by the recent back-and-forth — your messages *and* Claude's replies — so she stays with what you're actually working on instead of reacting to each line cold.
-* **Real emotion, not flat narration.** Inline tags like `[laughing]`, `[whisper]`, `[sigh]`, and `[gasp]` let her actually laugh, soften, or sigh.
+* **Customizable persona.** Her tone and what she says on greeting, on each reply, and on goodbye all live in `config.json` — make her warm, deadpan, flirty, a hype-beast, whatever fits you.
+* **In the moment.** She greets you, reacts to each message *while Claude writes the reply*. Each reaction is shaped by the recent history, You get made fun of what you're actually working on.
+* **Real emotion.** Inline tags like `[laughing]`, `[whisper]`, `[sigh]`, and `[gasp]` let her actually laugh, soften, or sigh.
 
 
 ## What you need
 
 * An Apple Silicon Mac.
 * Python 3.10 or newer.
-* About 10GB of disk for the model and roughly 18GB of free RAM to run it.
 * A Hugging Face token, if the model download asks for one.
 
 ## Get started
@@ -32,7 +30,7 @@ cd claude-code-companion && ./setup.sh
 
 Next configure `config.json`, then open a Claude Code session in this folder. The companion starts, greets you, and speaks on every message from then on.
 
-## Add a voice
+## Add a voice (for Fish Studio)
 
 A voice is two files in `voices/`:
 
@@ -42,11 +40,11 @@ A voice is two files in `voices/`:
 
 ## How it works
 
-The model is large (about 18GB in memory), so loading it for every line would be far too slow. Instead a small background service (`daemon.py`) loads it once and keeps it ready. Everything else talks to that service:
+A background service (`daemon.py`) loads it once and keeps it ready. Everything else talks to that service:
 
 * Claude Code **hooks** start the service when a session opens, fire a reaction on each message, quietly record each exchange so the next reaction has context, and stop the service when the session ends.
 * The **MCP server** is a thin proxy to the same service, so nothing loads the model twice.
-* Each voice's reference clip is encoded once and reused, so repeat lines generate quickly (around 2.2x realtime), and her line **streams to your speakers as it's generated** — she starts speaking almost as soon as the words exist, not after the whole clip renders.
+* Each voice's reference clip is encoded once and reused, so repeat lines generate quickly, and her line **streams to your speakers as it's generated** — she starts speaking almost as soon as the words exist, not after the whole clip renders.
 * The recent conversation — your messages and Claude's replies — is kept in a local `logs/<session>.md` file and folded into each reaction. Like everything else here, it never leaves your machine.
 
 Every part fails quietly. If the voice service is down you simply get no audio (your messages are still remembered for context), never a broken Claude session.
