@@ -10,6 +10,7 @@ Register via .mcp.json. Tools:
   voice_status()      - is the daemon up / model ready
 """
 
+import json
 import urllib.request
 
 from mcp.server.fastmcp import FastMCP

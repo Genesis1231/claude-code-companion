@@ -13,12 +13,14 @@ Recursion guard: the nested `claude -p` runs with COMPANION_NO_HOOK=1, so when i
 ends and fires SessionEnd -> `voiced.sh stop`, that bails instead of looping.
 """
 
+import json
 import os
 import shutil
 import signal
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 from config import PORT, VOICE, PERSONA, FAREWELL_PROMPT
 

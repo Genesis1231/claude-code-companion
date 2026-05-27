@@ -12,11 +12,13 @@ COMPANION_NO_HOOK=1 and bail immediately when we see that — so the inner Claud
 never spawns more Claudes or tears the daemon down.
 """
 
+import json
 import os
 import shutil
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 if os.environ.get("COMPANION_NO_HOOK"):
     sys.exit(0)  # nested claude -p invocation — do nothing
