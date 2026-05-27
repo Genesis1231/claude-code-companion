@@ -24,23 +24,21 @@ from pathlib import Path
 if os.environ.get("COMPANION_NO_HOOK"):
     sys.exit(0)  # nested claude -p invocation — do nothing
 
-from config import PORT, VOICE, PERSONA, REPLY_PROMPT, LOGS_DIR, logger
+from config import PORT, VOICE, PERSONA, REPLY_PROMPT, LOGS_DIR, session_log, logger
 
-_CONTEXT_LINES = 4  # how many prior messages to inject as session context
-
-
-def _session_file(session_id: str) -> Path:
-    return LOGS_DIR / f"{session_id}.md"
+# A turn is a user line plus a Claude entry; a long Claude reply spans 3 physical
+# lines (head / elision marker / tail), so 12 lines ≈ the most recent 3 turns.
+_MAX_LINES = 12
 
 
 def _read_context(session_id: str) -> str:
-    """Return the last few logged messages as a context snippet, or empty string."""
+    """Return the recent turns as a context snippet (oldest first), or empty.
+    Keeps continuation lines of multi-line entries — only blank lines are dropped."""
     if not session_id:
         return ""
     try:
-        lines = [l for l in _session_file(session_id).read_text().splitlines()
-                 if l.startswith("- ")]
-        return "\n".join(lines[-_CONTEXT_LINES:])
+        lines = [l for l in session_log(session_id).read_text().splitlines() if l.strip()]
+        return "\n".join(lines[-_MAX_LINES:])
     except OSError:
         return ""
 
@@ -52,10 +50,11 @@ def _append_message(session_id: str, msg: str) -> None:
     try:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now().strftime("%H:%M")
-        with _session_file(session_id).open("a") as fp:
-            fp.write(f"- [{ts}] {msg[:120]}\n")
+        msg = " ".join(msg.split())  # flatten newlines so it stays one log line
+        with session_log(session_id).open("a") as fp:
+            fp.write(f"- [{ts}] User: {msg}\n")
     except OSError:
-        pass
+        logger.warning("failed to append message to session log", exc_info=True)
 
 
 # Bypass any system proxy — the daemon is on localhost.
@@ -67,7 +66,7 @@ def _daemon_ready() -> bool:
         with _opener.open(f"http://127.0.0.1:{PORT}/health", timeout=1) as r:
             return json.loads(r.read()).get("ready") is True
     except Exception:
-        return False
+        return False  # daemon simply not up yet — expected, stay quiet
 
 
 def _claude_bin():
@@ -90,19 +89,28 @@ def main():
         return
     user_msg = (payload.get("prompt") or "").strip()
     session_id = (payload.get("session_id") or "").strip()
-    # No point spending a claude call if there's nothing to react to or the
-    # daemon can't speak it yet.
-    claude = _claude_bin()
-    if not user_msg or not claude or not _daemon_ready():
+    if not user_msg:
         return
 
+    # Log the user line independently of the voice pipeline: read context BEFORE
+    # appending (so it excludes the current message), then record it. The Stop
+    # hook logs Claude's reply unconditionally, so the user side must too — else a
+    # slow/absent daemon (model still loading, or claude -p timing out) leaves
+    # Claude lines in the log with no matching user line.
     context = _read_context(session_id)
+    _append_message(session_id, user_msg)
+
+    # The spoken reaction is best-effort; bail quietly if we can't make one.
+    claude = _claude_bin()
+    if not claude or not _daemon_ready():
+        return
+
     if context:
         prompt = (f"{PERSONA}\n\n{REPLY_PROMPT}\n\n"
-                  f"Earlier in this session:\n{context}\n\n"
-                  f"User's message:\n{user_msg[:500]}")
+                  f"Recent conversation between user and AI Coder(not you):\n{context}\n\n"
+                  f"User asks the AI Coder:\n{user_msg}")
     else:
-        prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser's message:\n{user_msg[:500]}"
+        prompt = f"{PERSONA}\n\n{REPLY_PROMPT}\n\nUser asks the AI Coder:\n{user_msg}"
     try:
         line = subprocess.run(
             # --strict-mcp-config: load no MCP servers, so this text-only call
@@ -128,8 +136,6 @@ def main():
         _opener.open(req, timeout=2)  # fire-and-forget
     except Exception:
         logger.warning("failed to POST the reply line to the daemon", exc_info=True)
-
-    _append_message(session_id, user_msg)
 
 
 if __name__ == "__main__":

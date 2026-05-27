@@ -22,6 +22,11 @@ SESSIONS_DIR = RUNTIME_DIR / "sessions"
 
 LOGS_DIR = HERE / "logs"
 
+
+def session_log(session_id: str) -> Path:
+    """Path to a session's running conversation log (one .md per Claude session)."""
+    return LOGS_DIR / f"{session_id}.md"
+
 # Plain append FileHandler, no rotation: several short-lived processes
 # (reply_hook, goodbye, mcp_server) may write at once, and POSIX append is atomic
 # per line while rotation rollover races. delay=True so the file is created only
