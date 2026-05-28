@@ -1,0 +1,13 @@
+# Core runtime dependencies for Claude Code Companion.
+#
+# mlx-audio is pinned to the commit currently known to work with Fish Audio S2
+# in this project. The PyPI 0.4.3 release has a model regression, so install
+# from GitHub rather than the published wheel.
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@22f7ae49fdc95ef93bf2103a8a77cdf3d40012c2
+
+mcp[cli]==1.27.1
+mlx-whisper==0.4.3
+numpy==1.26.4
+python-dotenv==1.2.2
+sounddevice==0.5.5
+soundfile==0.13.1

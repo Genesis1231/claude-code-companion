@@ -31,22 +31,11 @@ fi
 "$VPY" -m pip install --quiet --upgrade pip
 
 # --- 2. Dependencies ----------------------------------------------------
-# IMPORTANT: mlx-audio MUST come from git main. The PyPI 0.4.3 release has a
-# model regression (issue #690) that makes it emit noise; the fix is on main but
-# unreleased. Note: @main is not pinned, so a future main could regress — pin a
-# specific commit here if you want fully reproducible installs.
 echo "==> installing dependencies (first run pulls a lot — grab a coffee)"
 # soundfile + sounddevice: engine.py decodes reference clips and streams playback
 # through them. python-dotenv: loads .env (HF_TOKEN). These are declared explicitly
 # rather than leaned on as transitive deps of mlx-audio.
-"$VPY" -m pip install --quiet \
-  "git+https://github.com/Blaizzy/mlx-audio.git@main" \
-  "mcp[cli]" \
-  mlx-whisper \
-  soundfile \
-  sounddevice \
-  python-dotenv \
-  numpy
+"$VPY" -m pip install --quiet -r "$DIR/requirements.txt"
 
 # Optional: text processor for the Kokoro model (a built-in-voice alternative to
 # the default Fish Audio S2 Pro). Harmless if you only ever use Fish, and made

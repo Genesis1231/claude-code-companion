@@ -5,7 +5,7 @@ so running it alongside the daemon never double-loads the 18GB weights. The
 daemon (started by the SessionStart hook) owns the single model instance.
 
 Register via .mcp.json. Tools:
-  speak(text, voice, speed)  - generate + play through the daemon
+  speak(text, voice)  - generate + play through the daemon
   list_voices()       - available profiles
   voice_status()      - is the daemon up / model ready
 """
@@ -88,9 +88,6 @@ def speak(text: str, voice: str = VOICE) -> dict:
     [pause] [sigh] and many more. Returns immediately; audio plays in the
     background on the daemon. Keep lines short (~10-15 words) so the spoken
     line stays close behind the text.
-
-    speed: optional playback rate override (1.0 = natural). When omitted, the
-    daemon uses the voice's configured default (voices/<name>.speed, else 1.0).
     """
     payload = {"text": text, "voice": voice}
     return _post("/speak", payload)

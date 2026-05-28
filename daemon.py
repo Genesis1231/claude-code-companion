@@ -29,7 +29,7 @@ class Speaker:
     Only the most recent pending line is spoken (stay current)."""
 
     def __init__(self, warm_voice: "str | None" = None):
-        self._pending = None                     # (text, voice, speed) or None
+        self._pending = None                     # (text, voice) or None
         self._final = False                      # speak _pending, then exit the process
         self._cv = threading.Condition()
         self._warm_voice = warm_voice
@@ -40,7 +40,7 @@ class Speaker:
         self._worker.start()
         threading.Thread(target=self._reap_when_idle, daemon=True).start()
 
-    def submit(self, text: str, voice: str, speed=None) -> bool:
+    def submit(self, text: str, voice: str) -> bool:
         """Queue a line. Returns False if the worker is dead (won't be spoken)."""
         if self.error is not None:
             return False
@@ -49,16 +49,16 @@ class Speaker:
                 # latest-wins: we're dropping an unspoken line — make it visible
                 print(f"[daemon] dropping unspoken line (superseded): {self._pending[0][:60]!r}",
                       flush=True)
-            self._pending = (text, voice, speed)
+            self._pending = (text, voice)
             self._cv.notify()
         return True
 
-    def submit_final(self, text: str, voice: str, speed=None) -> None:
+    def submit_final(self, text: str, voice: str) -> None:
         """Speak one last line (the goodbye), then exit the process to free the
         model's RAM. Used by the /shutdown teardown path."""
         self._shutting_down = True
         with self._cv:
-            self._pending = (text, voice, speed)
+            self._pending = (text, voice)
             self._final = True
             self._cv.notify()
 
@@ -86,12 +86,12 @@ class Speaker:
             with self._cv:
                 while self._pending is None:
                     self._cv.wait()
-                text, voice, speed = self._pending
+                text, voice = self._pending
                 self._pending = None
                 final = self._final
                 self._final = False
             try:
-                engine.speak(text=text, voice=voice or None, play=True, speed=speed)
+                engine.speak(text=text, voice=voice or None, play=True)
             except Exception as e:
                 print(f"[daemon] speak failed: {e}", flush=True)
                 logger.exception("speak failed for text: %r", text[:80])
@@ -166,13 +166,7 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             return self._json(400, {"error": "empty text"})
         voice = data.get("voice", VOICE)
-        speed = data.get("speed")  # None -> engine uses the per-voice default
-        if speed is not None:
-            try:
-                speed = float(speed)
-            except (TypeError, ValueError):
-                speed = None
-        if not speaker.submit(text, voice, speed):   # fire-and-forget
+        if not speaker.submit(text, voice):   # fire-and-forget
             return self._json(503, {"error": f"voice daemon not ready: {speaker.error}"})
         self._json(202, {"queued": True})
 
