@@ -2,7 +2,7 @@
 
 A private voice companion for Claude Code, powered by local TTS.
 
-It starts a resident Apple Silicon TTS daemon, greets you when a Claude Code session opens, reacts while Claude is writing, and says goodbye when the session ends. Use [Fish Audio S2](https://huggingface.co/mlx-community/fish-audio-s2-pro) for cloned voices, or [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16) for fast built-in voices.
+She greets you when a Claude Code starts, reacts while generating code, and motivate you to complete the task. Use [Fish Audio S2](https://huggingface.co/mlx-community/fish-audio-s2-pro) for customizable voices, or [Kokoro](https://huggingface.co/mlx-community/Kokoro-82M-bf16) for faster built-in voices.
 
 No cloud TTS. No speech API keys. No audio or code leaves your machine.
 
