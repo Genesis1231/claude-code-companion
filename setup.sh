@@ -41,7 +41,7 @@ echo "==> installing dependencies (first run pulls a lot — grab a coffee)"
 # the default Fish Audio S2 Pro). Harmless if you only ever use Fish, and made
 # non-fatal: a build failure here must not abort the rest of setup (which still
 # has to write .env, .mcp.json, and the hooks below).
-"$VPY" -m pip install --quiet "misaki[en]" \
+"$VPY" -m pip install --quiet -r "$DIR/requirements-optional.txt" \
   || echo "==> note: optional misaki[en] (Kokoro support) failed to install; skipping"
 
 # --- 3. Directories -----------------------------------------------------
@@ -124,14 +124,13 @@ cat <<EOF
 ==> Setup complete.
 
 Next steps:
-  1. Add a voice profile (none are included — they're personal):
+  1. Use the included sample voice, or add your own voice profile:
        voices/<name>.wav   a clean 20-40s mono speech clip
        voices/<name>.txt   its exact transcript
      Quick transcript with the bundled whisper:
        $VENV/bin/mlx_whisper voices/<name>.wav --model mlx-community/whisper-large-v3-mlx \\
          --output-format txt --output-dir voices/
-     The default voice is "her1_clean" (set in config.json) — either name a
-     profile that, or change "voice" in config.json.
+     The default voice is "sample" (set in config.json).
 
   2. Start the daemon (first run downloads the ~10GB model):
        ./voiced.sh start

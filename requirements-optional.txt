@@ -1,0 +1,2 @@
+# Optional dependency for Kokoro built-in voices.
+misaki[en]

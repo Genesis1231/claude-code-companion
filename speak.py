@@ -2,7 +2,7 @@
 
 Usage:
     python speak.py "Hello [excited] this is a test [laughing]"
-    python speak.py --voice her1_clean "say this in that voice"
+    python speak.py --voice sample "say this in that voice"
     python speak.py --ref-audio voice.wav --ref-text "transcript" "ad-hoc clone"
     echo "piped text" | python speak.py -
 

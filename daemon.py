@@ -4,7 +4,7 @@ and audio is generated + played in a worker thread. Newer requests supersede
 queued-but-unstarted ones so the spoken voice always matches the latest reply.
 
 Run:   python daemon.py [--port 8765]
-Speak: curl -s -XPOST 127.0.0.1:8765/speak -d '{"text":"hi","voice":"her1_clean"}'
+Speak: curl -s -XPOST 127.0.0.1:8765/speak -d '{"text":"hi","voice":"sample"}'
 Health: curl -s 127.0.0.1:8765/health
 """
 

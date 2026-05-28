@@ -23,7 +23,7 @@ fi
 PY="$DIR/.venv/bin/python"
 cfg() { PYTHONPATH="$DIR" "$PY" -c "import config; print(getattr(config,'$1',''))" 2>/dev/null || true; }
 PORT="$(cfg PORT)";   PORT="${PORT:-8765}"
-VOICE="$(cfg VOICE)"; VOICE="${VOICE:-her1_clean}"
+VOICE="$(cfg VOICE)"; VOICE="${VOICE:-sample}"
 # GREETING_PROMPT / PERSONA are read inside `start` only (the sole place they're used).
 
 RUNTIME="$(cfg RUNTIME_DIR)"; RUNTIME="${RUNTIME:-${TMPDIR:-/tmp}/claude-code-companion}"
